@@ -8,76 +8,85 @@ import random
 import time
 import concurrent.futures
 
-def check_nodes(spark):
-    status = spark.sparkContext._jsc.sc().statusTracker().getExecutorInfos()
-    active_nodes = len(status)
-    print(f"Number of active nodes: {active_nodes}")
-    if active_nodes >= 3:
-        print("There are at least 3 nodes running.")
-    else:
-        print("Less than 3 nodes are running.")
-
 def main():
-    # spark = SparkSession.builder.appName("Product Rating Analysis").getOrCreate()
     # spark = SparkSession.builder \
     #     .appName("Product Rating Analysis") \
-    #     .master("spark://hadoop-master:7077") \
+    #     .master("yarn") \
+    #     .config("spark.hadoop.fs.defaultFS", "hdfs://hadoop-master:9000") \
+    #     .config("spark.executor.instances", "3") \
+    #     .config("spark.executor.cores", "2") \
+    #     .config("spark.executor.memory", "1g") \
     #     .getOrCreate()
-    #     # .config("spark.executor.instances", "3") \
-    #     # .config("spark.executor.cores", "2") \
-    #     # .config("spark.executor.memory", "2g") \
             
-    spark = SparkSession.builder \
-        .appName("Product Rating Analysis") \
-        .master("yarn") \
-        .config("spark.hadoop.fs.defaultFS", "hdfs://hadoop-master:9000") \
-        .config("spark.yarn.jars", "hdfs://hadoop-master:9000/spark-jars/*.jar") \
-        .getOrCreate()
+    # spark = SparkSession.builder \
+    #     .appName("Product Rating Analysis") \
+    #     .master("yarn") \
+    #     .config("spark.hadoop.fs.defaultFS", "hdfs://hadoop-master:9000") \
+    #     .config("spark.yarn.jars", "hdfs://hadoop-master:9000/spark-jars/hadoop-mapreduce-examples-2.7.1-sources.jar") \
+    #     .getOrCreate()
         
-    sc = spark.sparkContext("My Hadoop Cluster")
-    master_url = sc.master
-    print(f"Master URL: {master_url}")
-    
-    if master_url.startswith("local"):
-        print("Running in local mode")
-    elif master_url.startswith("spark"):
-        print("Running in standalone mode")
-    elif master_url.startswith("yarn"):
-        print("Running in yarn mode")
-    else:
-        print("Running in unknown mode")
+    spark = SparkSession.builder.appName("Final Project").getOrCreate()    
         
-    df = spark.read.csv('../data/data.csv', header=True, inferSchema=True)
+    df = spark.read.csv("hdfs://localhost:9000/user/input/data.csv", header=True, inferSchema=True)
     df = df.drop('Timestamp')
 
     while True:
+        print("\n")
         df.show(3)
         print("Select an option:")
-        print("1. Categorize Data, Grouped by ProductId")
-        print("2. Find Min and Max Scores")
-        print("3. Add New Data")
-        print("4. Update Existing Data")
-        print("5. Exit")
-        choice = input("Enter your choice: ")
+        print("1. Average Rating per Product")
+        print("2. Average Rating per User")
+        print("3. Add new data")
+        print("4. Update data")
+        print("5. Get dataset min rating")
+        print("6. Get dataset max rating")
+        print("7. Run Stress Test 1")
+        print("8. Run Stress Test 2")
+        print("9. Run Stress Test 3")
+        print("10. Exit")
+        
+        choice = input("Enter your choice: \n")
 
         if choice == '1':
-            categorize_data(df).show()
+            get_avg_rating_per_product(df).show(5)
         elif choice == '2':
-            min_rating, max_rating = find_min_max(df)
-            print(f"Lowest Rating: {min_rating}, Highest Rating: {max_rating}")
+            get_avg_rating_per_user(df).show(5)
         elif choice == '3':
-            new_data = input("Enter new data (UserId,ProductId,Rating) separated by commas: ")
-            new_data = [tuple(new_data.split(','))]
-            columns = ["UserId", "ProductId", "Rating"]
-            df = add_data(df, new_data, columns)
-            df.filter(col("UserId") == new_data[0][0] & col("ProductId") == new_data[0][1]).show()
+            print("Addition of new data")
+            user_id = input("Enter UserId: ")
+            product_id = input("Enter ProductId: ")
+            rating = input("Enter Rating: ")
+            rating = float(rating)
+            df = add_data(df, [(user_id, product_id, rating)], spark)
+            df.filter((col("UserId") == user_id) & (col("ProductId") == product_id)).show(5)
         elif choice == '4':
-            new_data = input("Update row with (UserId,ProductId) with (Rating), please write these 3 values separated by commas: ")
-            new_data = new_data.replace(" ", "")
-            new_data = new_data.split(',')
-            user_id, product_id, new_rating = new_data
+            print("Update data")
+            user_id = input("Enter UserId: ")
+            product_id = input("Enter ProductId: ")
+            new_rating = input("Enter new Rating: ")
+            new_rating = float(new_rating)
             df = update_data(df, user_id, product_id, new_rating)
+            df.filter((col("UserId") == user_id) & (col("ProductId") == product_id)).show(5)
         elif choice == '5':
+            print("Min Rating: "+str(get_min_rating(df)))
+        elif choice == '6':
+            print("Max Rating: "+str(get_max_rating(df)))
+        elif choice == '7':
+            print("Running Stress Test 1: Single client making the same request very quickly")
+            start_time = time.time()
+            task_1(df)
+            print("Stress Test 1 completed in", time.time() - start_time, "seconds")
+        elif choice == '8':
+            print("Running Stress Test 2: Multiple clients making requests randomly")
+            start_time = time.time()
+            task_2_test(df)
+            print("Stress Test 2 completed in", time.time() - start_time, "seconds")                
+        elif choice == '9':
+            print("Running Stress Test 3: System processing a large load of data quickly")
+            start_time = time.time()
+            task_3_add(df, spark)
+            print("Stress Test 3 completed in", time.time() - start_time, "seconds")
+        elif choice == '10':
             break
         else:
             print("Invalid choice. Please try again.")
@@ -85,64 +94,62 @@ def main():
     spark.stop()
 
 
-
-def categorize_data(df):
+def get_avg_rating_per_product(df):
     return df.groupBy("ProductId").avg("Rating").withColumnRenamed("avg(Rating)", "AverageRating")
 
-def find_min_max(df):
-    min_rating = df.select(spark_min("Rating")).collect()[0][0]
-    max_rating = df.select(spark_max("Rating")).collect()[0][0]
-    return min_rating, max_rating
+def get_avg_rating_per_user(df):
+    return df.groupBy("UserId").avg("Rating").withColumnRenamed("avg(Rating)", "AverageRating")
 
-def add_data(df, new_data, columns, spark=SparkSession.builder.appName("Product Rating Analysis").getOrCreate()):
-    new_df = spark.createDataFrame(new_data, schema=columns)
+def get_min_rating(df):
+    return df.select(spark_min("Rating")).first()[0]
+
+def get_max_rating(df):
+    return df.select(spark_max("Rating")).first()[0]
+
+def add_data(df, new_data, spark):
+    new_df = spark.createDataFrame(new_data, schema=df.schema)
     return df.union(new_df)
 
 def update_data(df, user_id, product_id, new_rating):
     condition = (col("UserId") == user_id) & (col("ProductId") == product_id)
-    if not df[condition].isEmpty():
+    if df.filter(condition).count() > 0:
         df = df.withColumn(
             'Rating',
             when(condition, new_rating).otherwise(col("Rating"))
         )
-        print(f"Updated UserId: {user_id}, ProductId: {product_id} with new Rating: {new_rating}")
-        df.filter(condition).show()
         return df
     else:
-        print(f"No entry found for UserId: {user_id}, ProductId: {product_id}")
-
+        pass
     return df
 
-def run_stress_tests(df):
-    def task_1():
-        for _ in range(10000):
-            categorize_data(df)
+def task_1(df):
+    for _ in range(10000):
+        get_avg_rating_per_product(df)
 
-    def task_2():
-        requests = [random.randint(1, 100) for _ in range(10000)]
-        for req in requests:
-            find_min_max(df)
+def task_2(df, no_requests):
+    requests = [random.randint(1, 100) for _ in range(no_requests)]
+    for req in requests:
+        if req % 2 == 0:
+            get_max_rating(df)
+        else:
+            get_min_rating(df)
+            
+def task_2_test(df):
+    client1 = random.randint(1, 10000)
+    client2 = random.randint(1, 10000 - client1)
+    client3 = 10000 - client1 - client2
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [executor.submit(task_2, df, client1), executor.submit(task_2, df, client2), executor.submit(task_2, df, client3)]
+        try:
+            concurrent.futures.wait(futures)
+        except KeyboardInterrupt:
+            executor.shutdown(wait=False) 
+            print("Tasks interrupted and executor shut down.")
 
-    def task_3():
-        for i in range(1000):
-            add_data(df, [(i, f"Product_{i}", random.randint(1, 5))], ["UserId", "ProductId", "Rating"])
-
-    print("Running Stress Test 1: Single client making the same request very quickly")
-    start_time = time.time()
-    task_1()
-    print(f"Stress Test 1 completed in {time.time() - start_time:.2f} seconds")
-
-    print("Running Stress Test 2: Multiple clients making requests randomly")
-    start_time = time.time()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(task_2) for _ in range(10)]
-        concurrent.futures.wait(futures)
-    print(f"Stress Test 2 completed in {time.time() - start_time:.2f} seconds")
-
-    print("Running Stress Test 3: System processing a large load of data quickly")
-    start_time = time.time()
-    task_3()
-    print(f"Stress Test 3 completed in {time.time() - start_time:.2f} seconds")
-
+def task_3_add(df, spark):
+    for i in range(1000):
+        add_data(df, [(i, "product"+str(i), random.uniform(1, 5) )], spark)
+        
 if __name__ == "__main__":
     main()
