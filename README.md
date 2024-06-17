@@ -32,6 +32,12 @@ service ssh restart
 sudo su hadoop
 start-all.sh
 ```
-5. Running console app
-- go to directory  /home/hadoop/scripts
-- run command -> python3 main.py
+5. Running console app (inside continer)
+- go to directory  /home/hadoop
+```
+git clone https://github.com/krzychuszala/hadoop-project.git
+cd hadoop-project
+hdfs dfs -mkdir /user/input
+hdfs dfs -put data.csv <id-of-your-container>:/user/input
+python3 main.py
+```
