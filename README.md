@@ -18,18 +18,20 @@ This project provides an interactive Spark-based tool for analyzing product rati
 ### How to run it?
 
 1. Creating docker container
+```
 git clone https://github.com/AdamGodzinski/Pyspark-BDaDP.git
 docker build . -t hadoopspark
 docker run --name hadoop -p 8088:8088 -p 9870:9870 -p
 9864:9864 -p 10000:10000 -p 8032:8032 -p 8030:8030 -p
 8031:8031 -p 9000:9000 -p 8888:8888 -itd hadoopspark
 docker exec -it -u 0 hadoop /bin/bash
-
-2. Running envinronment (inside container)
+```
+4. Running envinronment (inside container)
+```
 service ssh restart
 sudo su hadoop
 start-all.sh
-
-3. Running console app
+```
+5. Running console app
 - go to directory  /home/hadoop/scripts
 - run command -> python3 main.py
